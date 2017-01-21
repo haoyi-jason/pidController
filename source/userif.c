@@ -282,12 +282,15 @@ int16_t uiKeyPoll(uint32_t ct)
           break;
         case ODR_ATO:
           paramSetActiveOrder(ODR_IDLE);
-          sysSetOP1Output(0);
           sysReturnOpMode();
           break;
         default:
-          paramSetActiveOrder(ODR_IDLE);
-          sysNotifyParamAltered();
+          if(paramGetShowTarget() == SHOW_STRING){
+            paramSetActiveOrder(ODR_IDLE);
+            sysNotifyParamAltered();
+          }else{
+            paramSetShowTarget(SHOW_STRING);
+          }
         }
         break;
       case keyProIn:
@@ -322,8 +325,8 @@ int16_t uiKeyPoll(uint32_t ct)
       case keyRm:
         if(paramGetCurrentOrder() == ODR_IDLE){
           paramSetActiveOrder(ODR_MAN);        
-          sysSetOpMode(modMAN);
-          sysSetManOP1(0);
+          //sysSetOpMode(modMAN);
+          //sysSetManOP1(0);
         }        
         break;
       }

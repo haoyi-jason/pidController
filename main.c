@@ -50,25 +50,36 @@ int main()
   uint8_t testMode = 0;
   uint32_t counter;
   halInit();
-  paramInit();
-  keypadInit();
-  modOpInit();
 
+  paramInit();
   sysInit();
 
   sysSetMBAddress(0x1);
   sysSetBaudrate(0x2);
   sysSetParity(0x0);
+  //writeFloatParamByIndex(PIDP,8.3);
+  //writeFloatParamByIndex(PIDI,0.1);
+  //writeFloatParamByIndex(PIDD,300);
   
-  sysSetParam(RRT,10);
-  sysSetParam(TMS,10);
+  /*
+  sysSetParam(RRT,5);
+  sysSetParam(TMS,5);
   sysSetOpMode(modPRO);
+  sysSetParam(SPH,100);
+  sysSetParam(PLH,100);
+  //sysSetParam(RRT,5);
+*/
+  keypadInit();
+  modOpInit();
+
+
   
   modbusRTUInit(); 
   while(true)
   {
     if(t1_overflow == 1){
       t1_overflow = 0;
+      sysIncCounter();
       if(testMode) {
         taskPoll();
         continue;

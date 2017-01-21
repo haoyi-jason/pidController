@@ -58,21 +58,9 @@ eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs,
   if(eMode == MB_REG_READ){
     for(i=0;i<nofReg;i++){
       if(usAddr == 99){
-        //regVal = readKeyByReg(ADR);
-        //readIntParamByIndex(ADR,&regVal);
         regVal = sysGetMBAddress();
       }
       else{
-        /*
-        key = getKeyByIndex(usAddr);
-        if(key){
-          if(key->mbRegOrder == RRT){
-            regValL = 5;
-          }
-          readScaledIntKeyByReg(usAddr,&regVal);
-          regVal = byteSwap16(regVal);
-          memcpy(pucRegBuffer,&regVal,2);
-        */
         regVal = sysGetParam(usAddr);
         regVal = byteSwap16(regVal);  
           memcpy(pucRegBuffer,&regVal,2);
@@ -91,19 +79,7 @@ eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs,
       
       int16_t keyVal;
       switch(usAddr){
-      case CMD:
-        switch(regVal){
-        case 0: // issue reset
-          sysSetOpMode(modTCR);
-          break;
-        case 1: // set to modMAN
-          sysSetOpMode(modMAN);
-          break;
-        case 2: // set to modTCR
-          sysSetOpMode(modATO);
-          break;
-        }
-        break;
+
       case CIF:
         // check if MOD == modPRO
         //readIntParamByIndex(MOD,&keyVal);

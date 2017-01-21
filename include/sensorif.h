@@ -49,6 +49,6 @@ int16_t isSensorAcqDone();
 void resetSensorDone();
 void getTemperature(double *coldJ, double *sensortemp);
 void sensorReadADC();
-
+void sensorSetType(uint8_t type);
 
 #endif

@@ -2,7 +2,7 @@
 #define _PARAM_
 
 #define NOF_PARAM       53
-#define HEADING 0xaa
+#define HEADING 0x55
 
 #define SHOW_STRING     0
 #define SHOW_VALUE      1

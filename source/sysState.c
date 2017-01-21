@@ -4,16 +4,17 @@
 #include "haladucm360.h"
 #include "param.h"
 #include "mbregs.h"
+#include "sensorif.h"
 static sys_state_t sysState;
 
-static int16_t opMode, opModeOld;
+static int16_t opMode, opModeOld,opModeTemp;
 static uint16_t sysError = 0;
 static uint16_t runCycles = 0;
 static uint16_t ranCycles = 0;
 static uint32_t ranSecs;
 static uint32_t counter5ms;
 static uint8_t ranDays,ranHours,ranMins;
-static int16_t ens;
+static int16_t ens,enp;
 static uint16_t sysInfo = 0x0;
 static double setPoint = 0;
 static double tsp,gsp,bsp;
@@ -22,6 +23,7 @@ static int16_t o2f;
 static uint32_t o2EnabledSecs;
 
 static uint8_t op1,op2;
+static uint8_t o2CountDown = 0;
 //static uint8_t opMan;
 static uint8_t di1;
 static uint8_t opDir = DIR_UNKNOW;
@@ -36,13 +38,18 @@ static double proSpStep;
 static uint16_t nofProSteps,nofProStepsRan;
 static int16_t rrt,tms,tsh;
 static uint32_t proStartTime;
+static uint32_t proRanSecs;
 static double proStartPv;
 static uint8_t prosState;
 
 int16_t alf,all,alh;
-int16_t spl,sph;
+static double spl,sph;
+int16_t pll,plh;
+static double kp,ki,kd;
 
 static uint32_t atuneCounter = 0;
+
+
 
 #define TEMP_SAMPLE_TIME        1000/CT2SEC
 #define NOF_TEMP_HISTORY        8
@@ -50,6 +57,14 @@ static double tempHistory[NOF_TEMP_HISTORY];
 uint32_t lastTempSample;
 uint8_t tempCycles = 0;
 uint8_t dirCycles = 0;
+
+uint8_t isSysEnsLock()
+{
+  if(ens > 0){
+    if(enp == 0) return 1;
+  }
+  return 0;
+}
 
 uint16_t mbByteSwap(uint16_t v)
 {
@@ -122,39 +137,48 @@ uint8_t isSysError()
 
 void sysSetOpMode(int16_t mode)
 {
-  opModeOld = opMode;
-  opMode = mode;
+  opModeTemp = mode; 
   sysInfo |= MODE_ALTERED;
   
-  switch(opMode){
+  return;
+  if(mode == opMode) return;
+  
+  switch(mode){
     case modTCR:
-      op1 = 0;
-      readFloatParamByIndex(TSP,&setPoint);
+      sysSetOP1Output(0);
+      //readFloatParamByIndex(TSP,&setPoint);
+      setPoint = tsp;
       break;
     case modGE1:
-      op1 = 0;
-      readFloatParamByIndex(GSP,&setPoint);
+      sysSetOP1Output(0);
+      //readFloatParamByIndex(GSP,&setPoint);
+      setPoint = gsp;
       break;
     case modGE2:
-      op1 = 0;
-      readFloatParamByIndex(GSP,&setPoint);
+      sysSetOP1Output(0);
+//      readFloatParamByIndex(GSP,&setPoint);
+      setPoint = gsp;
       break;
     case modATO:
-      op1 = 0;
-      readFloatParamByIndex(TSP,&setPoint);
+      sysSetOP1Output(0);
+//      readFloatParamByIndex(TSP,&setPoint);
+      setPoint = gsp;
       sysResetATTimer();
       break;
     case modPRO:
       readFloatParamByIndex(TSP,&setPoint);
       //setPoint = 0;
       //writeIntParamByIndex(SP1,0);
-      op1 = 0;
+      sysSetOP1Output(0);
       prosState = PROS_IDLE;
       break;
     case modSWM:
-      op1 = 0;
+      sysSetOP1Output(0);
       break;    
   }
+  opModeOld = opMode;
+  opMode = mode;
+  sysInfo |= MODE_ALTERED;
   sysSetParam(MOD,mode);
 }
 
@@ -162,6 +186,7 @@ void sysSetProStart(uint32_t ct)
 {
   //proStartTime = ct;
   proStartTime = ranSecs;
+  proRanSecs = 0;
   nofProSteps = rrt*60/RRT_PERIOD;
   proSpStep = (float)(setPoint - pv)/(float)(nofProSteps);
   proStartPv = pv;
@@ -175,13 +200,15 @@ void sysSetProStop()
 }
 uint8_t sysProPoll(uint32_t ct)
 {
-  uint8_t step = (ranSecs - proStartTime)/RRT_PERIOD;
+//  uint8_t step = (ranSecs - proStartTime)/RRT_PERIOD;
+  uint8_t step = (proRanSecs)/RRT_PERIOD;
   if(prosState == PROS_RUN){
     if(step <= nofProSteps){
       sysSetSetpoint(proStartPv + proSpStep*step);
     }else{
+      sysSetSetpoint(tsp);
       if(tms > 0){
-        if(((ranSecs - proStartTime)/60) > (rrt + tms)){
+        if(((proRanSecs)/60) > (rrt + tms)){
   //        op1 = 0;
           prosState = PROS_IDLE;
         }
@@ -250,7 +277,8 @@ void sysReturnOpMode()
     break;
   }
   
-  opMode = opModeOld;
+  opModeTemp = opModeOld;
+  opModeOld = opMode;
   sysInfo |= MODE_ALTERED;
 }
 
@@ -259,8 +287,27 @@ int16_t sysGetOpMode()
   return opMode;
 }
 
+int16_t sysGetNewMode()
+{
+  return opModeTemp;
+}
+
+int16_t sysGetOldOpMode()
+{
+  return opModeOld;
+}
+
+int16_t sysConfirmOpMode()
+{
+  opModeOld = opMode;
+  opMode = opModeTemp;
+  writeIntParamByIndex(MOD,opMode);
+  return 0;
+}
+
 void sysSetSetpoint(double sp)
 {
+  if(sp != setPoint) alarmOffCycles = 1;
   setPoint = sp;
   sysInfo |= SP_ALTERED;
   writeFloatParamByIndex(SP1,sp);
@@ -275,6 +322,7 @@ double sysGetSetpoint()
 uint16_t resetSysInfo(uint8_t bit)
 {
   sysInfo &= ~bit;
+
   return sysInfo;
 }
 
@@ -286,6 +334,16 @@ uint8_t sysOpmodeAltered()
 uint8_t sysSpAltered()
 {
   return (sysInfo & SP_ALTERED);
+}
+
+uint8_t sysGetInfo()
+{
+  return sysInfo;
+}
+
+void sysClearInfo(uint8_t info)
+{
+  sysInfo &= ~info;
 }
 
 uint8_t isSetpointAltered()
@@ -321,44 +379,58 @@ void sysSetRunCycle(uint16_t cycle)
 
 void sysSetOP1Output(double v)
 {
+  uint8_t opt;
   // todo : control OP1 to v
   //int16_t o1f,o1h,o1e;
   //int16_t pv,sp;
   //float fv;
   //uint8_t duty = 0;
-  readIntParamByIndex(O1F,&o1f);
-  readIntParamByIndex(O1H,&o1h);
-  readIntParamByIndex(O1E,&o1e);
   
   switch(o1f){
   case O1F_NON:
-    op1 = 0;
+    opt = 0;
     break;
   case O1F_HPI:
   case O1F_CPI:
-    op1 = (uint8_t)v;
+    opt = (uint8_t)v;
     break;
   case O1F_HNF:
 //    readIntParamByIndex(TPV,&pv);
 //    readIntParamByIndex(SP1,&sp);
-    if(pv <= setPoint) op1 = 100;
-    else op1 = 0;
+    if(pv <= setPoint - o1h) opt = 100;
+    else opt = 0;
     break;
   case O1F_HPR:
   case O1F_CNF:
   case O1F_CPR:
     break;
   }
+    
+  if(isSysAlarm()){
+    switch(o1e){
+    case O1E_OFF:
+      opt = 0;
+      break;
+    case O1E_ON:
+      opt = 100;
+      break;
+    case O1E_KEP:
+      opt = op1;
+      break;
+    }
+  }
   
-  if(op1 == 0){
+  if(opt == 0){
     halSetPwmIoMode(0);
   }else{
     halSetPwmIoMode(1);
     
   }
+
   
   //halSetPwmDuty(op1);
-  writeScaledIntParamByIndex(MV1,op1);
+  op1 = opt;
+  writeScaledIntParamByIndex(MV1,opt);
 }
 
 uint16_t sysGetPwmDuty()
@@ -372,9 +444,10 @@ uint8_t sysGetOP1Output()
   return op1;
 }
 
-void sysSetOP2()
+void sysSetOP2(int16_t v)
 {
   int16_t o2f;
+  uint8_t driveAlarm = 0;
   //uint8_t updateOutput = 1;
   int16_t kv;
   readIntParamByIndex(O2F,&o2f);
@@ -384,22 +457,45 @@ void sysSetOP2()
     break;
   case O2F_ALA:
     if(isSysAlarm()){
-      op2 = 1;
+      //op2 = 1;
+      driveAlarm = 1;
     }else{
-      op2 = 0;
+      //op2 = 0;
+    }
+    
+    switch(ald){
+    case ALD_NOR:
+      op2 = driveAlarm;
+      break;
+    case ALD_LTC:
+      if(op2 == 0) op2 = driveAlarm;
+      break;
+    case ALD_HOLD:
+    case ALD_SPH:
+      if(alarmOffCycles == 0)
+        op2 = driveAlarm;
+      break;
     }
     break;
   case O2F_TIM:
-    if(o2EnabledSecs == 0)
-      o2EnabledSecs = ranSecs;
-    if(pv >= setPoint){
-      if((ranSecs - o2EnabledSecs) < tms*60) 
-        op2 = 1;
-      else 
+    if(o2CountDown == 0){
+      if(pv > setPoint){
+        o2EnabledSecs = tms * 60;
+        o2CountDown = 1;
+      }
+    }else{
+      if(o2EnabledSecs == 0){
+        op2 = 1;  
+      }else{
         op2 = 0;
+      }
     }
     break;
   case O2F_COM:
+    if(v == 0)
+      op2 = 0;
+    else
+      op2 = 1;
     //readIntParamByIndex(MV2,&kv);
     //op2 = kv;
     break;
@@ -432,7 +528,11 @@ void sysSetOP2()
     break;
   }
   
-  halSetDigOut(op2);
+  if(op2)
+    halSetDigOut(0);
+  else
+    halClrDigOut(0);
+  writeIntParamByIndex(MV2,op2);
 }
 
 uint8_t sysGetOP2Output()
@@ -469,7 +569,7 @@ void sysArmManOP1()
   }
   
   //halSetPwmDuty(op1);
-  writeIntParamByIndex(MV1,op1);
+  writeIntParamByIndex(MV1,op1*10);
 
 }
 
@@ -485,44 +585,62 @@ void sysSetDI1(uint8_t v)
 
 uint8_t sysGetDI1()
 {
-  di1 = halReadDigIn(0);
-  writeIntParamByIndex(DI1,di1);
-  return di1;
+  uint8_t di = halReadDigIn(0);
+
+  if(di == 1){
+    return 0;
+  }else{
+    return 1;
+  }
 }
 
 void sysCheckDI1()
 {
   int16_t kv;
-  readIntParamByIndex(I1F,&kv);
+  uint8_t di = sysGetDI1();
   
-  switch(kv){
+//  readIntParamByIndex(I1F,&kv);
+  if(di == di1) return;
+  
+  switch(i1f){
   case I1F_NONE:
     break;
   case I1F_GM1:
     // switch to GE1
-    //sysSetOpMode(modGE1);
+    if(di) sysSetOpMode(modGE1);
+    else sysReturnOpMode();
     break;
   case I1F_GM2:
-    //sysSetOpMode(modGE2);
+    if(di) sysSetOpMode(modGE2);
+    else sysReturnOpMode();
     break;
   case I1F_PRO:
-    //sysSetOpMode(modPRO);
+    if(di) sysSetOpMode(modPRO);
+    else sysReturnOpMode();
     break;
   case I1F_MAU:
-    //sysSetOpMode(modMAN);
+    if(di) sysSetOpMode(modMAN);
+    else sysReturnOpMode();
     break;
   case I1F_SWM:
     if(sysGetOpMode() == modSWM){
-      sysSetOP1Output(di1*100);
+      sysSetOP1Output(di*100);
     }
     break;
   case I1F_TIM:
-    //sysSetOpMode(modTIM);
-    if(di1 == 1){
-      o2EnabledSecs = ranSecs;
+    if(di == 1 ){
+      if(o2CountDown == 0){
+        o2EnabledSecs = tms * 60;
+        o2CountDown = 1;
+      }
+    }else{
+      o2EnabledSecs = 0;
+      o2CountDown = 0;
     }
     break;
   }
+  di1 = di;
+  writeIntParamByIndex(DI1,di1);
 }
 
 void sysArmDI1ToOP1()
@@ -599,7 +717,7 @@ uint8_t sysGetStatus(uint8_t sta)
 
 void sysCheckState()
 {
-  
+  uint8_t alarmEn = 0;
   switch(alf){
   case ALF_DHI:
     if(pv > (setPoint + alh)){
@@ -644,7 +762,7 @@ void sysCheckState()
     }
     break;
   case ALF_PBH:
-    if(pv > alh && pv < alf){
+    if(pv > alh || pv < alf){
       sysSetAlarm(ALF_PBH);
     }else{
       sysClearAlarm(ALF_PBH);
@@ -683,7 +801,8 @@ void sysCheckState()
     }else{
       sysClearStatus(STA_ENS);
     }
-    writeIntParamByIndex(ENS,ens - ranDays);
+    enp = ens - ranDays;
+    writeIntParamByIndex(ENP,enp);
   }
   
   // DLL
@@ -711,6 +830,16 @@ uint16_t sysGetParam(uint16_t index)
   case CMD:
     kv = 0;
     break;
+  case MOD:
+    if((opMode == modATO) || (opMode == modMAN)){
+      kv = modTCR;
+    }else{
+      kv = opMode;
+    }
+    break;
+  case TSP:
+    readIntParamByIndex(index,&kv);
+    break;
   default:
     readIntParamByIndex(index,&kv);
   }
@@ -723,16 +852,29 @@ void sysSetParam(uint16_t index, uint16_t v)
   int16_t kv1,kv2;
   switch(index){
   case MOD:
-    sysInfo |= MODE_ALTERED;
-    opMode = v;
-    writeIntParamByIndex(index,v);      
+//    sysInfo |= MODE_ALTERED;
+//    opModeTemp = v;
+    sysSetOpMode(v);
+//    writeIntParamByIndex(index,v);      
     break;
   case TSP:
+    if((tsp <= sph) && (tsp >= spl)){
+      writeIntParamByIndex(index,v);
+      readFloatParamByIndex(TSP,&tsp);
+      sysInfo |= MODE_ALTERED;
+    }
+    break;
   case GSP:
-  case BSP:
-    readScaledIntParamByIndex(index,&kv1);
-    if((kv1 <= sph) && (kv1 >= spl)){
+    if((gsp <= sph) && (gsp >= spl)){
       writeIntParamByIndex(index,v);      
+      readFloatParamByIndex(GSP,&gsp);
+      sysInfo |= MODE_ALTERED;
+    }
+    break;
+  case BSP:
+    if((bsp <= sph) && (bsp >= spl)){
+      writeIntParamByIndex(index,v);      
+      readFloatParamByIndex(BSP,&bsp);
       sysInfo |= MODE_ALTERED;
     }
     break;
@@ -747,16 +889,17 @@ void sysSetParam(uint16_t index, uint16_t v)
   case IN:
     sensorType = v;
     writeIntParamByIndex(IN,v);
+    sensorSetType(sensorType);
     break;
   case SPL:
     //spl = v;
-    writeIntParamByIndex(index,v);
-    readScaledIntParamByIndex(index,&spl);
+    writeScaledIntParamByIndex(index,v);
+    readFloatParamByIndex(index,&spl);
     break;
   case SPH:
     sph = v;
-    writeIntParamByIndex(index,v);
-    readScaledIntParamByIndex(index,&sph);
+    writeScaledIntParamByIndex(index,v);
+    readFloatParamByIndex(index,&sph);
     break;
   case ALH:
     alh = v;
@@ -771,6 +914,8 @@ void sysSetParam(uint16_t index, uint16_t v)
   case ALF:
     alf = v;
     writeIntParamByIndex(index,v);
+    // alarm function changed, reset alarmState;
+    sysResetAlarm();
     break;
   case ALD:
     ald = v;
@@ -786,7 +931,59 @@ void sysSetParam(uint16_t index, uint16_t v)
     break;
   case O2F:
     o2f = v;
+    op2 = 0;
     writeIntParamByIndex(index,v);
+    break;
+  case MV2:
+    sysSetOP2(v);
+    break;
+  case ENS:
+    ens = v;
+    writeIntParamByIndex(index,v);
+    break;
+  case ENP:
+    enp = v;
+    writeIntParamByIndex(index,v);
+    break;
+  case CMD:
+    switch(v){
+    case 0:
+      sysSetOpMode(modTCR);
+      break;
+    case 1:
+      sysSetOpMode(modMAN);
+      paramSetActiveOrder(ODR_MAN);
+      break;
+    case 2:
+      sysSetOpMode(modATO);
+      paramSetActiveOrder(ODR_ATO);
+      break;
+    }
+    break;
+  case PLL:
+    pll = v;
+    writeIntParamByIndex(index,v);
+    pidSetOutputLimits((double)pll,(double)plh);
+    break;
+  case PLH:
+    plh = v;
+    writeIntParamByIndex(index,v);
+    pidSetOutputLimits((double)pll,(double)plh);
+    break;
+  case ADR:
+  case BAU:
+  case PAR:
+    writeIntParamByIndex(index,v);
+    writeParams();
+    break;
+  case PIDP:
+  case PIDI:
+  case PIDD:
+    writeIntParamByIndex(index,v);
+    sysInfo |= PID_ALTERED;
+    break;
+  case MV1:
+    op1 = v/10;
     break;
   default:
     writeIntParamByIndex(index,v);
@@ -796,7 +993,7 @@ void sysSetParam(uint16_t index, uint16_t v)
 
 int16_t sysPeriodicPoll(uint32_t ct)
 {
-  counter5ms = ct;
+//  counter5ms = ct;
   
   if((ct - lastTempSample) > TEMP_SAMPLE_TIME){
     lastTempSample = ct;
@@ -921,8 +1118,14 @@ void sysAlterParams(uint8_t index, int16_t v)
 void sysAddSeconds()
 {
   ranSecs++;
+  proRanSecs++;
+  ranMins = ranSecs / 60;
+  ranHours = ranMins / 60;
+  ranDays = ranHours/24;
+  if((o2EnabledSecs > 0) && (o2CountDown == 1))
+    o2EnabledSecs--;
+  if((ranSecs %60) == 0) writeParams();
 }
-
 
 
 void sysInit()
@@ -937,11 +1140,6 @@ void sysInit()
   alarmOffCycles = 0;
   counter5ms = 0;
   
-  readFloatParamByIndex(TSP,&tsp);
-  readFloatParamByIndex(GSP,&gsp);
-  readFloatParamByIndex(BSP,&bsp);
-  op1 = op2 = 0;
-  setPoint = tsp;
   
   readIntParamByIndex(ADR,(int16_t*)&modbusAddr);
   if(modbusAddr == 250){
@@ -959,12 +1157,44 @@ void sysInit()
   readIntParamByIndex(ALF,(int16_t*)&alf);
   readIntParamByIndex(ALL,(int16_t*)&all);
   readIntParamByIndex(ALH,(int16_t*)&alh);
-  /*
-  readIntParamByIndex(ENS,(int16_t*)&all);
-  readIntParamByIndex(ENS,(int16_t*)&all);
-  readIntParamByIndex(ENS,(int16_t*)&all);
-  readIntParamByIndex(ENS,(int16_t*)&all);
-  */
   
+  readFloatParamByIndex(SPH,&sph);
+  readFloatParamByIndex(SPL,&spl);
+  readIntParamByIndex(PLH,(int16_t*)&plh);
+  readIntParamByIndex(PLL,(int16_t*)&pll);
+  
+  readIntParamByIndex(O1F,&o1f);
+  readIntParamByIndex(O1H,&o1h);
+  readIntParamByIndex(O1E,&o1e);
+
+  readIntParamByIndex(ENS,&ens);
+  readIntParamByIndex(ENP,&enp);
+
+  readFloatParamByIndex(TSP,&tsp);
+  readFloatParamByIndex(GSP,&gsp);
+  readFloatParamByIndex(BSP,&bsp);
+
+  if((tsp > sph) || (tsp < spl)){
+    // set to low limit
+    tsp = spl;
+    writeFloatParamByIndex(TSP,tsp);
+  }
+  
+  if((gsp > sph) || (gsp < spl)){
+    gsp = spl;
+    writeFloatParamByIndex(GSP,gsp);
+  }
+  
+  if((bsp > sph) || (bsp < spl)){
+    bsp = spl;
+    writeFloatParamByIndex(BSP,bsp);
+  }
+  
+  
+
+  op1 = op2 = 0;
+  setPoint = tsp;
+  o2EnabledSecs = tms * 60;
+  sysStateReset();
 }
 

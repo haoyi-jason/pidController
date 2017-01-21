@@ -15,7 +15,7 @@ const param_map_t paramMap[]=
   {"MOD",MOD,0,0,0,4,1,0},
   {"ADR",ADR,250,0,1,250,1,0},
   {"STA",STA,0,0,0,0xffff,1,0},
-  {"MV2",MV1,0,1,0,10,10,0},
+  {"MV2",MV2,0,1,0,1,1,0},
   {"ERR",ERR,0,0,0,0xffff,1,0},
   {"DI1",DI1,0,0,0,1,1,0},
   {"-V-",VV,0,1,0,300,1,0},
@@ -31,11 +31,11 @@ const param_map_t paramMap[]=
   {"PLL",PLL,0,0,0,99,1,0},
   {"PLH",PLH,1,0,1,100,1,0},
   {"ALF",ALF,3,0,0,8,1,0},
-  {"RRT",RRT,0,0,0,999,1,0},
+  {"RRT",RRTT,0,0,0,999,1,0},
   {"CMD",CMD,0,0,0,999,1,0},
   {"-P-",PIDP,0,3,0,9999,1,0},
   {"-I-",PIDI,0,3,0,9999,1,0},
-  {"-D-",PIDD,0,3,0,9999,1,0},
+  {"-D-",PIDD,0,2,0,9999,1,0},
   {"O1F",O1F,1,0,0,6,1,0},
   {"O1H",O1H,10,1,-5000,5000,10,0},
   {"O1E",O1E,0,0,0,2,1,0},
@@ -45,14 +45,14 @@ const param_map_t paramMap[]=
   {"CIF",CIF,0,0,0,3,1,0},
   {"LOK",LOK,0,0,0,666,666,0},
   {"RRT",RRT,0,0,0,999,1,0},
-  {"TMS",TMS,250,0,1,240,1,0},
+  {"TMS",TMS,0,0,0,999,1,0},
   {"BAU",BAU,2,0,0,3,1,0},
   {"PAR",PAR,0,0,0,2,1,0},
   {"TSP",TSP,300,1,-3000,9990,10,0},
   {"GSP",GSP,50,1,-3000,9990,10,0},
-  {"BSP",BSP,0,0,0,5,1,0},
-  {"SPL",SPL,0,1,-3000,9990,10,0},
-  {"SPH",SPH,0,1,-3000,9990,10,0},
+  {"BSP",BSP,0,0,0,7,1,0},
+  {"SPL",SPL,200,1,-3000,9999,10,0},
+  {"SPH",SPH,1500,1,-3000,9999,10,0},
   {"ATU",ATU,0,0,0,2,1,0},
   {"DSP",DSPC,0,0,0,2,1,0},
   {"DSP",DSPO,0,0,0,2,1,0},
@@ -65,7 +65,7 @@ const param_map_t paramMap[]=
 static param_map_t params[NOF_PARAM];
 sys_params_t sysParams;
 const unsigned char view_order[]={TPV,SP1,TSP,GSP,MV1,MV2,DI1,CIF,STA,ERR,ID,ENP,VV,AA,PP,KWH};
-const unsigned char set_order[]={LOK,MOD,TSP,GSP,ALL,ALH,RRT,CMD,BSP,PIDP,PIDI,PIDD,SPL,SPH};
+const unsigned char set_order[]={LOK,MOD,TSP,GSP,ALL,ALH,RRT,TMS,BSP,PIDP,PIDI,PIDD,SPL,SPH};
 const unsigned char cfg_order[]={ADR,LED,IN,TSH,O1F,O1H,O1E,PLL,PLH,ALF,ALD,O2F,I1F,BAU,PAR};
 
 static uint8_t currentIndex;
@@ -79,7 +79,6 @@ void paramInit(void)
   int16_t kv;
   
   loadParams();
-  sysInit();
   
   readIntParamByIndex(MOD,&kv);
   if((kv == modATO) || (kv == modMAN)){
@@ -137,6 +136,10 @@ void paramSetActiveOrder(uint8_t ord)
     break;
   case ODR_CFG:
     currentParamIndex = cfg_order[0];
+    break;
+  case ODR_MAN:
+    sysSetOpMode(modMAN);
+    //sysSetManOP1(0);
     break;
   }
   currentOrder = ord;
@@ -199,13 +202,13 @@ void paramValueInc()
       switch(currentParamIndex){
       case TSP:
       case GSP:
-      case BSP:
+     // case BSP:
         ulimit = params[SPH].uLimit;
         break;
       }
-      params[currentParamIndex].val++;
+      params[currentParamIndex].val+= params[currentParamIndex].incStep;
       if(params[currentParamIndex].val > ulimit)
-        params[currentParamIndex].val--;
+        params[currentParamIndex].val-=params[currentParamIndex].incStep;
       params[currentParamIndex].modified = 1;
     }
     break;
@@ -242,9 +245,9 @@ void paramValueDec()
       case BSP:
         llimit = params[SPL].lLimit;
       }
-      params[currentParamIndex].val--;
+      params[currentParamIndex].val-=params[currentParamIndex].incStep;
       if(params[currentParamIndex].val < llimit)
-        params[currentParamIndex].val++;
+        params[currentParamIndex].val+=params[currentParamIndex].incStep;
       params[currentParamIndex].modified = 1;
     }
     break;
@@ -258,6 +261,11 @@ int16_t paramGetDisplayString(char *str)
 {
   uint8_t showIndex;
   int16_t kv;
+  
+  if(isSysEnsLock()){
+    sprintf(str,"Lim");
+    return 0;
+  }
   switch(currentOrder){
   case ODR_IDLE:
     switch(sysGetOpMode()){
@@ -276,7 +284,7 @@ int16_t paramGetDisplayString(char *str)
       sprintf(str,"%s",params[currentParamIndex].disp);
     }else{
       readScaledIntParamByIndex(currentParamIndex,&kv);
-      sprintf(str,"%03d",params[kv]);
+      sprintf(str,"%03d",kv);
     }
     break;
   case ODR_SET:
@@ -338,6 +346,7 @@ int16_t readScaledIntParamByIndex(uint16_t index,int16_t *val)
 int16_t readIntParamByIndex(uint16_t index,int16_t *val)
 {
   uint8_t i;
+
   for(i=0;i<NOF_PARAM;i++){
     if(params[i].mbRegOrder == index){
       *val = params[i].val;
@@ -352,7 +361,12 @@ int16_t readFloatParamByIndex(uint16_t index,double *val)
   uint8_t i;
   for(i=0;i<NOF_PARAM;i++){
     if(params[i].mbRegOrder == index){
-      double v = (double)params[i].val;
+      double v;
+      if(index == PIDD){
+        v = (double)((uint16_t)params[i].val);
+      }else{
+        v = (double)params[i].val;
+      }
       int16_t j = params[i].digits;
       while(j--){
         v /= 10.;

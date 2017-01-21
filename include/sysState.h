@@ -37,15 +37,16 @@ enum sys_status_e{
 };
 
 enum alarm_drive_e{
-  AD_NOR,
-  AD_LTC,
-  AD_HOLD,
-  AD_SPH,
+  ALD_NOR,
+  ALD_LTC,
+  ALD_HOLD,
+  ALD_SPH,
 };
 
 enum{
   MODE_ALTERED = 0x01,
-  SP_ALTERED = 0x02
+  SP_ALTERED = 0x02,
+  PID_ALTERED = 0x04,
 };
 
 enum o1fFunc_e{O1F_NON,O1F_HPI,O1F_HNF,O1F_HPR,O1F_CPI,O1F_CNF,O1F_CPR};
@@ -160,7 +161,7 @@ int16_t sysGetOpMode();
 void sysSetSetpoint(double sp);
 double sysGetSetpoint();
 uint8_t sysStateLocked();
-void sysSetOP2();
+void sysSetOP2(int16_t v);
 uint16_t sysGetPwmDuty();
 void sysIncCounter();
 void sysIncManOP1();
@@ -199,4 +200,13 @@ void sysSetProPause();
 uint8_t sysProPoll(uint32_t ct);
 
 void sysAddSeconds();
+
+uint8_t isSysEnsLock();
+
+void sysSetOP1Output(double v);
+uint8_t sysGetInfo();
+void sysClearInfo(uint8_t info);
+
+int16_t sysGetNewMode();
+
 #endif

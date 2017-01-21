@@ -7,6 +7,7 @@ static uint8_t keyPressTime[16];
 static uint8_t keyPressState;
 static uint8_t keyRptCntr;
 static uint8_t keyLast;
+static uint16_t longKeyMask = 0x0;
 void keypadInit(void)
 {
   uint8_t i;
@@ -58,16 +59,21 @@ int16_t keypadPoll(uint32_t ct)
         keyPressState = LONG_KEY_PRESSED;
         //keyCode = keyState;
         keyPressed = LONG_KEY_PRESSED;
-        keyPressTime[keyCode] = 0;
+//        keyPressTime[keyCode] = 0;
+        longKeyMask |= (1 << keyCode);
       }
         
     }
   }else{
-      if(keyPressTime[keyCode] > PRESS_SHORT_PERIOD){
-        keyPressState = SHORT_KEY_PRESSED;
-        //keyCode = keyState;
-        keyPressed = SHORT_KEY_PRESSED;
-        keyPressTime[keyCode] = 0;
+    if(longKeyMask != 0x0){
+      keyPressTime[keyCode] = 0;      
+      longKeyMask &= ~(1 << keyCode);
+    }
+    if(keyPressTime[keyCode] > PRESS_SHORT_PERIOD){
+      keyPressState = SHORT_KEY_PRESSED;
+      //keyCode = keyState;
+      keyPressed = SHORT_KEY_PRESSED;
+      keyPressTime[keyCode] = 0;
       }
     
   }

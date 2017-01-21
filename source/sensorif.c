@@ -204,8 +204,13 @@ uint8_t sensorGetTemp(double *coldJ, double *sensortemp)
     break;
   }
   
-  ucSensorType = sysGetSensorType();
+  //ucSensorType = sysGetSensorType();
   return ucTcBreak;
+}
+
+void sensorSetType(uint8_t type)
+{
+  ucSensorType = type;
 }
 
 
